@@ -21,11 +21,6 @@
 #define MIN_USERNAME_LEN 2
 #define PACKET_LEN MAX_MSG_LEN + MAX_USERNAME_LEN
 
-//void customPrintStr() {
-//    printf("%s", "> ");
-//    fflush(stdout);
-//}
-
 void trimStrLeft(char *arr, int length) {
     for (int i = 0; i < length; i++) { // trim \n
         if (arr[i] == '\n') {
@@ -60,10 +55,10 @@ void printClientAddr(struct sockaddr_in clientAddr) {
 }
 
 // Add clients to array
-void addClient2Array(client_t *cl) {
+void addClientArray(client_t *cl) {
     pthread_mutex_lock(&clients_mutex);
     for (int i = 0; i < MAX_CLIENTS; ++i) {
-        if (!clients[i]) { // empty slot in array
+        if (clients[i] == 0) { // empty slot in array
             clients[i] = cl; // assign client to empty slot
             break;
         }
@@ -84,16 +79,12 @@ void removeClientFromArray(int uid) {
 }
 
 // Broadcast msg to all clients
-void broadcastMsg(char *s, int uid) {
+void broadcastMsg(char *s) {
     pthread_mutex_lock(&clients_mutex);
     for (int i = 0; i < MAX_CLIENTS; ++i) {
-        if (clients[i]) {
-            if (clients[i]->uid != uid) {
-                if (write(clients[i]->sockfd, s, strlen(s)) < 0) {
-                    perror("ERROR: send msg to client failed");
-                    break;
-                }
-            }
+        if (clients[i] != 0) {
+            printf("%i ", i);
+            send(clients[i]->sockfd, s, strlen(s) + 1, 0);
         }
     }
     pthread_mutex_unlock(&clients_mutex);
@@ -103,46 +94,36 @@ void broadcastMsg(char *s, int uid) {
 void *clientHandler(void *arg) {
     char buff_out[BUFFER_SZ];
     char username[32];
-    int leave_flag = 0;
+//    int leave_flag = 0;
     cli_count++;
     client_t *cli = (client_t *)arg;
     // Receive username
-    if (recv(cli->sockfd, username, MAX_USERNAME_LEN, 0) <= 0 || strlen(username) < 2 || strlen(username) >= MAX_USERNAME_LEN - 1) {
+    if (recv(cli->sockfd, username, MAX_USERNAME_LEN, 0) <= 0) {
         printf("Invalid username length.\n");
-        leave_flag = 1;
-    }
-    else {
+//        leave_flag = 1;
+    } else {
         strcpy(cli->username, username);
         sprintf(buff_out, "%s has joined\n", cli->username);
         printf("%s", buff_out);
-        broadcastMsg(buff_out, cli->uid);
+        broadcastMsg(buff_out);
     }
-//    bzero(buff_out, BUFFER_SZ);
     memset(&buff_out, 0, BUFFER_SZ);
     while (1) {
-        if (leave_flag)
-            break;
-
         int receive = recv(cli->sockfd, buff_out, BUFFER_SZ, 0); // wait and recv msg from client
         if (receive > 0) {
-            if (strlen(buff_out) > 0) {
-                broadcastMsg(buff_out, cli->uid);
-
-                trimStrLeft(buff_out, strlen(buff_out));
-                printf("%s -> %s\n", buff_out, cli->username);
+            if (strlen(buff_out) > 0 && strcmp(buff_out, ":exit") != 0)  {
+                broadcastMsg(buff_out);
+//                trimStrLeft(buff_out, strlen(buff_out));
+                printf("%s -> %s\n", cli->username, buff_out);
             }
         }
-        else if (/*receive == 0 || */strcmp(buff_out, "exit") == 0) {
+        if (receive <= 0 || strcmp(buff_out, ":exit") == 0) {
             sprintf(buff_out, "%s has left\n", cli->username);
             printf("%s", buff_out);
-            broadcastMsg(buff_out, cli->uid);
-            leave_flag = 1;
-        }/*
-        else {
-            printf("ERROR: -1\n"); // msg receiving error
-            leave_flag = 1;
-        }*/
-//        bzero(buff_out, BUFFER_SZ);
+            broadcastMsg(buff_out);
+//            leave_flag = 1;
+            break;
+        }
         memset(&buff_out, 0, BUFFER_SZ);
     }
 
@@ -158,8 +139,6 @@ void *clientHandler(void *arg) {
 
 int main()
 {
-//    char *ip = "127.0.0.1";
-//    int port = SERVER_PORT;
     int option = 1;
     int listenfd = 0, connfd = 0;
     struct sockaddr_in serv_addr;
@@ -172,7 +151,6 @@ int main()
     serv_addr.sin_port = 0;
     /* Ignore pipe signals */
     signal(SIGPIPE, SIG_IGN);
-
     if (setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, (char *)&option, sizeof(option)) < 0) {
         perror("ERROR: setsockopt failed");
         return EXIT_FAILURE;
@@ -193,12 +171,8 @@ int main()
         perror("ERROR: Socket listening failed");
         return EXIT_FAILURE;
     }
-//    cout << "IP: " << inet_ntoa(servAddr.sin_addr) << endl;
-//    cout << "server's port: " << ntohs(servAddr.sin_port) << endl;
     printf("IP: %s\n", inet_ntoa(serv_addr.sin_addr));
     printf("Server's port: %i\n", ntohs(serv_addr.sin_port));
-//    printf("NETCENTRIC TCP CHATTING APPLICATION - SERVER\n");
-
     while (1) {
         socklen_t clilen = sizeof(cli_addr);
         connfd = accept(listenfd, (struct sockaddr *)&cli_addr, &clilen);
@@ -217,7 +191,7 @@ int main()
         cli->sockfd = connfd;
         cli->uid = uid++;
         /* Add client to the queue and fork thread */
-        addClient2Array(cli);
+        addClientArray(cli);
         pthread_create(&tid, NULL, &clientHandler, (void *)cli);
         /* Reduce CPU usage */
         sleep(1);

@@ -83,7 +83,6 @@ void broadcastMsg(char *s) {
     pthread_mutex_lock(&clients_mutex);
     for (int i = 0; i < MAX_CLIENTS; ++i) {
         if (clients[i] != 0) {
-            printf("%i ", i);
             send(clients[i]->sockfd, s, strlen(s) + 1, 0);
         }
     }
@@ -108,13 +107,15 @@ void *clientHandler(void *arg) {
         broadcastMsg(buff_out);
     }
     memset(&buff_out, 0, BUFFER_SZ);
+    char str[255];
     while (1) {
         int receive = recv(cli->sockfd, buff_out, BUFFER_SZ, 0); // wait and recv msg from client
         if (receive > 0) {
             if (strlen(buff_out) > 0 && strcmp(buff_out, ":exit") != 0)  {
-                broadcastMsg(buff_out);
-//                trimStrLeft(buff_out, strlen(buff_out));
-                printf("%s -> %s\n", cli->username, buff_out);
+                sprintf(str, "%s\t-> %s\n", cli->username, buff_out);
+                broadcastMsg(str);
+//                printf("%s -> %s\n", cli->username, buff_out);
+                printf("%s", str);
             }
         }
         if (receive <= 0 || strcmp(buff_out, ":exit") == 0) {
@@ -124,6 +125,7 @@ void *clientHandler(void *arg) {
 //            leave_flag = 1;
             break;
         }
+        memset(&str, 0, 255);
         memset(&buff_out, 0, BUFFER_SZ);
     }
 
